@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poker Ledger</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel2: #1f232d;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a5;
+    --green: #3ecf8e;
+    --red: #ff6b6b;
+    --accent: #f5b942;
+    --accent-dim: #b98a2e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 10;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 18px; color: var(--accent); letter-spacing: 0.5px; }
+  #syncDot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-left: auto; }
+  #syncDot.on { background: var(--green); }
+  nav { display: flex; gap: 6px; flex-wrap: wrap; }
+  nav button {
+    background: none; border: 1px solid transparent; color: var(--muted);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  nav button.active { background: var(--panel2); color: var(--text); border-color: var(--border); }
+  nav button:hover { color: var(--text); }
+  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  input, select {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 8px; font-size: 14px; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--accent-dim); }
+  input[type=number] { width: 110px; }
+  button.btn {
+    background: var(--accent); color: #14161b; border: none; font-weight: 600;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  button.btn:hover { filter: brightness(1.1); }
+  button.btn.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--border); font-weight: 400; }
+  button.btn.danger { background: transparent; color: var(--red); border: 1px solid var(--red); font-weight: 400; }
+  button.btn.small { padding: 4px 10px; font-size: 13px; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .pos { color: var(--green); font-weight: 600; }
+  .neg { color: var(--red); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .pill.live { color: var(--green); border-color: var(--green); }
+  .link { color: var(--accent); cursor: pointer; text-decoration: none; }
+  .link:hover { text-decoration: underline; }
+  .buyin-controls { display: inline-flex; align-items: center; gap: 8px; }
+  .buyin-controls button {
+    width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); font-size: 16px; cursor: pointer;
+  }
+  .buyin-controls button:hover { border-color: var(--accent-dim); }
+  .buyin-count { min-width: 24px; text-align: center; font-weight: 600; font-size: 16px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .stat .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+  .settle-line { padding: 10px 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+  .empty { color: var(--muted); padding: 20px; text-align: center; font-size: 14px; }
+  .back { margin-bottom: 12px; display: inline-block; }
+  .warn { color: var(--accent); font-size: 13px; margin-top: 8px; }
+  code { background: var(--panel2); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
+  @media (max-width: 600px) {
+    td, th { padding: 8px 6px; }
+    main { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>&#9824; Poker Ledger</h1>
+  <nav id="nav"></nav>
+  <span id="syncDot" title="Live sync status"></span>
+</header>
+<main id="main"><div class="empty">Loading&hellip;</div></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+'use strict';
+
+// ---------- Supabase config (fill these in) ----------
+const SUPABASE_URL = 'https://vhknuotbxccisujrxwuw.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_UstPvxR39j5yqQLEcZCkug_au3c6HiG';
+// ------------------------------------------------------
+
+const configured = !SUPABASE_URL.includes('YOUR_');
+const db = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+// ---------- State (mirror of DB) ----------
+let state = { settings: { chipsPerBuyIn: 100, inrPerChip: 1 }, players: [], games: [], payments: [] };
+let loaded = false;
+
+async function refetchAll() {
+  const [set, pl, gm, en, pay] = await Promise.all([
+    db.from('settings').select('*').eq('id', 1).single(),
+    db.from('players').select('*').order('name'),
+    db.from('games').select('*').order('created_at'),
+    db.from('game_entries').select('*').order('created_at'),
+    db.from('payments').select('*').order('created_at'),
+  ]);
+  for (const r of [set, pl, gm, en, pay]) {
+    if (r.error) { console.error(r.error); alert('Failed to load data: ' + r.error.message); return; }
+  }
+  state.settings = { chipsPerBuyIn: +set.data.chips_per_buyin, inrPerChip: +set.data.inr_per_chip };
+  state.players = pl.data.map(p => ({ id: p.id, name: p.name }));
+  state.games = gm.data.map(g => ({
+    id: g.id, name: g.name || '', date: g.date, status: g.status,
+    inrPerChip: +g.inr_per_chip, chipsPerBuyIn: +g.chips_per_buyin,
+    entries: en.data.filter(e => e.game_id === g.id).map(e => ({
+      id: e.id, playerId: e.player_id, buyIns: e.buy_ins,
+      finalChips: e.final_chips == null ? null : +e.final_chips,
+    })),
+  }));
+  state.payments = pay.data.map(x => ({
+    id: x.id, date: x.date, fromId: x.from_id, toId: x.to_id, amount: +x.amount, note: x.note || '',
+  }));
+  loaded = true;
+}
+
+// Run a mutation, then refresh + re-render. Alerts on failure.
+async function mutate(fn) {
+  try {
+    const { error } = await fn();
+    if (error) throw error;
+    await refetchAll();
+    render();
+  } catch (e) {
+    console.error(e);
+    alert('Action failed: ' + (e.message || e));
+    render();
+  }
+}
+
+// ---------- Helpers ----------
+const fmt = n => (n < 0 ? '-' : '') + '₹' + Math.abs(Math.round(n * 100) / 100).toLocaleString('en-IN');
+const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'muted';
+const signed = n => (n > 0 ? '+' : '') + fmt(n);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const player = id => state.players.find(p => p.id === id);
+const pname = id => { const p = player(id); return p ? p.name : '(deleted)'; };
+const game = id => state.games.find(g => g.id === id);
+function today() { return new Date().toISOString().slice(0, 10); }
+
+function entryNet(g, e) {
+  if (e.finalChips == null) return null;
+  return (e.finalChips - e.buyIns * g.chipsPerBuyIn) * g.inrPerChip;
+}
+function gameNets(g) {
+  const nets = {};
+  for (const e of g.entries) {
+    const n = entryNet(g, e);
+    if (n != null) nets[e.playerId] = (nets[e.playerId] || 0) + n;
+  }
+  return nets;
+}
+function overallBalances() {
+  const bal = {};
+  for (const p of state.players) bal[p.id] = 0;
+  for (const g of state.games) {
+    const nets = gameNets(g);
+    for (const [pid, n] of Object.entries(nets)) bal[pid] = (bal[pid] || 0) + n;
+  }
+  for (const pay of state.payments) {
+    bal[pay.fromId] = (bal[pay.fromId] || 0) + pay.amount;
+    bal[pay.toId] = (bal[pay.toId] || 0) - pay.amount;
+  }
+  return bal;
+}
+function settle(balances) {
+  const debtors = [], creditors = [];
+  for (const [pid, b] of Object.entries(balances)) {
+    if (b < -0.005) debtors.push({ pid, amt: -b });
+    else if (b > 0.005) creditors.push({ pid, amt: b });
+  }
+  debtors.sort((a, b) => b.amt - a.amt);
+  creditors.sort((a, b) => b.amt - a.amt);
+  const txns = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const x = Math.min(debtors[i].amt, creditors[j].amt);
+    txns.push({ from: debtors[i].pid, to: creditors[j].pid, amount: x });
+    debtors[i].amt -= x; creditors[j].amt -= x;
+    if (debtors[i].amt < 0.005) i++;
+    if (creditors[j].amt < 0.005) j++;
+  }
+  return txns;
+}
+function playerStats(pid) {
+  let games = 0, wins = 0, losses = 0, net = 0, buyIns = 0;
+  const history = [];
+  for (const g of state.games) {
+    const e = g.entries.find(x => x.playerId === pid);
+    if (!e) continue;
+    const n = entryNet(g, e);
+    history.push({ game: g, entry: e, net: n });
+    if (n == null) continue;
+    games++; net += n; buyIns += e.buyIns;
+    if (n > 0) wins++; else if (n < 0) losses++;
+  }
+  return { games, wins, losses, net, buyIns, history: history.reverse() };
+}
+
+// ---------- Router ----------
+let route = { page: 'games' };
+function go(page, id) { route = { page, id }; render(); window.scrollTo(0, 0); }
+
+const NAV = [
+  ['games', 'Games'], ['players', 'Players'], ['settlement', 'Settlement'],
+  ['payments', 'Payments'], ['settings', 'Settings'],
+];
+
+function render() {
+  document.getElementById('nav').innerHTML = NAV.map(([k, label]) => {
+    const active = route.page === k || (k === 'games' && route.page === 'game') || (k === 'players' && route.page === 'player');
+    return `<button class="${active ? 'active' : ''}" onclick="go('${k}')">${label}</button>`;
+  }).join('');
+  const main = document.getElementById('main');
+  if (!configured) { main.innerHTML = viewSetup(); return; }
+  if (!loaded) { main.innerHTML = `<div class="empty">Loading&hellip;</div>`; return; }
+  const views = { games: viewGames, game: viewGame, players: viewPlayers, player: viewPlayer, settlement: viewSettlement, payments: viewPayments, settings: viewSettings };
+  main.innerHTML = (views[route.page] || viewGames)();
+}
+
+function viewSetup() {
+  return `<div class="card">
+    <h2>Setup Required</h2>
+    <p style="line-height:1.7;font-size:14px">
+      This app needs a Supabase backend. Edit <code>index.html</code> and set
+      <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> (from your Supabase project's
+      API settings), after running <code>schema.sql</code> in the SQL Editor.
+    </p>
+  </div>`;
+}
+
+// ---------- Views ----------
+function viewGames() {
+  const rows = [...state.games].reverse().map(g => {
+    const totalBuyIns = g.entries.reduce((s, e) => s + e.buyIns, 0);
+    const pot = totalBuyIns * g.chipsPerBuyIn * g.inrPerChip;
+    return `<tr>
+      <td><a class="link" onclick="go('game','${g.id}')">${esc(g.name || g.date)}</a><br><span class="muted" style="font-size:12px">${g.date}</span></td>
+      <td>${g.entries.length}</td>
+      <td>${totalBuyIns} <span class="muted">(${fmt(pot)})</span></td>
+      <td><span class="pill ${g.status === 'live' ? 'live' : ''}">${g.status === 'live' ? 'LIVE' : 'Finished'}</span></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <h2>New Game</h2>
+      <div class="row">
+        <input id="gName" placeholder="Game name (optional)">
+        <input id="gDate" type="date" value="${today()}">
+        <button class="btn" onclick="createGame(this)">Start Game</button>
+      </div>
+      <div class="muted" style="font-size:13px;margin-top:8px">
+        Buy-in: ${state.settings.chipsPerBuyIn} chips &middot; 1 chip = ${fmt(state.settings.inrPerChip)} (from Settings; editable per game)
+      </div>
+    </div>
+    <div class="card">
+      <h2>All Games</h2>
+      ${state.games.length ? `<table><tr><th>Game</th><th>Players</th><th>Buy-ins</th><th>Status</th></tr>${rows}</table>` : `<div class="empty">No games yet. Start one above.</div>`}
+    </div>`;
+}
+
+function createGame(btn) {
+  const name = document.getElementById('gName').value.trim() || null;
+  const date = document.getElementById('gDate').value || today();
+  btn.disabled = true;
+  mutate(async () => {
+    const r = await db.from('games').insert({
+      name, date,
+      inr_per_chip: state.settings.inrPerChip,
+      chips_per_buyin: state.settings.chipsPerBuyIn,
+    }).select().single();
+    if (!r.error) route = { page: 'game', id: r.data.id };
+    return r;
+  });
+}
+
+function viewGame() {
+  const g = game(route.id);
+  if (!g) return `<div class="empty">Game not found.</div>`;
+  const live = g.status === 'live';
+  const inGame = new Set(g.entries.map(e => e.playerId));
+  const addable = state.players.filter(p => !inGame.has(p.id));
+
+  const totalBuyIns = g.entries.reduce((s, e) => s + e.buyIns, 0);
+  const potChips = totalBuyIns * g.chipsPerBuyIn;
+  const chipsOut = g.entries.reduce((s, e) => s + (e.finalChips || 0), 0);
+  const allOut = g.entries.length > 0 && g.entries.every(e => e.finalChips != null);
+  const mismatch = allOut && chipsOut !== potChips;
+
+  const rows = g.entries.map(e => {
+    const net = entryNet(g, e);
+    const buyInCtl = live
+      ? `<span class="buyin-controls">
+           <button onclick="bumpBuyIn('${e.id}',-1)">&minus;</button>
+           <span class="buyin-count">${e.buyIns}</span>
+           <button onclick="bumpBuyIn('${e.id}',1)">+</button>
+         </span>`
+      : `<span class="buyin-count">${e.buyIns}</span>`;
+    const chipsCell = e.finalChips != null
+      ? `${e.finalChips}${live ? ` <button class="btn ghost small" onclick="checkout('${e.id}')">edit</button>` : ''}`
+      : (live ? `<button class="btn ghost small" onclick="checkout('${e.id}')">Checkout</button>` : `<span class="muted">—</span>`);
+    return `<tr>
+      <td><a class="link" onclick="go('player','${e.playerId}')">${esc(pname(e.playerId))}</a></td>
+      <td>${buyInCtl}</td>
+      <td class="muted">${e.buyIns * g.chipsPerBuyIn}</td>
+      <td>${chipsCell}</td>
+      <td class="${net == null ? 'muted' : cls(net)}">${net == null ? 'playing' : signed(net)}</td>
+      ${live ? `<td><button class="btn danger small" onclick="removeFromGame('${e.id}','${e.playerId}')">&times;</button></td>` : ''}
+    </tr>`;
+  }).join('');
+
+  const nets = gameNets(g);
+  const txns = settle(nets);
+  const settleHtml = allOut && txns.length
+    ? `<div class="card"><h2>Game Settlement</h2>${txns.map(t =>
+        `<div class="settle-line"><span>${esc(pname(t.from))} &rarr; ${esc(pname(t.to))}</span><b>${fmt(t.amount)}</b></div>`).join('')}
+       <div class="muted" style="font-size:13px">Or skip and settle everything later from the Settlement tab / via Payments.</div></div>`
+    : '';
+
+  return `
+    <a class="link back" onclick="go('games')">&larr; All games</a>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <h2 style="margin-bottom:4px">${esc(g.name || 'Game')} <span class="pill ${live ? 'live' : ''}">${live ? 'LIVE' : 'Finished'}</span></h2>
+          <span class="muted" style="font-size:13px">${g.date} &middot; buy-in ${g.chipsPerBuyIn} chips &middot; 1 chip = ${fmt(g.inrPerChip)}</span>
+        </div>
+        <div class="row">
+          ${live ? `<button class="btn ghost small" onclick="editGameRatio('${g.id}')">Edit ratio</button>
+                    <button class="btn small" onclick="finishGame('${g.id}')">Finish Game</button>`
+                 : `<button class="btn ghost small" onclick="reopenGame('${g.id}')">Reopen</button>`}
+          <button class="btn danger small" onclick="deleteGame('${g.id}')">Delete</button>
+        </div>
+      </div>
+    </div>
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat"><div class="label">Total buy-ins</div><div class="value">${totalBuyIns}</div></div>
+      <div class="stat"><div class="label">Pot</div><div class="value">${fmt(potChips * g.inrPerChip)}</div></div>
+      <div class="stat"><div class="label">Chips in play</div><div class="value">${potChips}</div></div>
+      <div class="stat"><div class="label">Chips counted out</div><div class="value">${chipsOut}</div></div>
+    </div>
+    ${mismatch ? `<div class="card"><div class="warn">&#9888; Chips counted out (${chipsOut}) don't match chips in play (${potChips}). Difference: ${chipsOut - potChips} chips.</div></div>` : ''}
+    <div class="card">
+      <h2>Players</h2>
+      ${g.entries.length ? `<table><tr><th>Player</th><th>Buy-ins</th><th>Chips in</th><th>Final chips</th><th>Net</th>${live ? '<th></th>' : ''}</tr>${rows}</table>` : `<div class="empty">Add players below.</div>`}
+      ${live ? `<div class="row" style="margin-top:14px">
+        ${addable.length ? `<select id="addPlayerSel">${addable.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        <button class="btn ghost" onclick="addToGame('${g.id}')">Add to game</button>` : ''}
+        <input id="newPName" placeholder="New player name">
+        <button class="btn ghost" onclick="quickAddPlayer('${g.id}')">Create &amp; add</button>
+      </div>` : ''}
+    </div>
+    ${settleHtml}`;
+}
+
+function findEntry(eid) {
+  for (const g of state.games) {
+    const e = g.entries.find(x => x.id === eid);
+    if (e) return { g, e };
+  }
+  return null;
+}
+function bumpBuyIn(eid, d) {
+  const f = findEntry(eid);
+  if (!f) return;
+  const v = Math.max(0, f.e.buyIns + d);
+  f.e.buyIns = v; render(); // optimistic
+  mutate(() => db.from('game_entries').update({ buy_ins: v }).eq('id', eid));
+}
+function checkout(eid) {
+  const f = findEntry(eid);
+  if (!f) return;
+  const v = prompt(`Final chip count for ${pname(f.e.playerId)}:`, f.e.finalChips != null ? f.e.finalChips : '');
+  if (v === null) return;
+  const n = parseFloat(v);
+  if (isNaN(n) || n < 0) return alert('Enter a valid chip count.');
+  mutate(() => db.from('game_entries').update({ final_chips: n }).eq('id', eid));
+}
+function addToGame(gid) {
+  const sel = document.getElementById('addPlayerSel');
+  if (!sel) return;
+  mutate(() => db.from('game_entries').insert({ game_id: gid, player_id: sel.value, buy_ins: 1 }));
+}
+function quickAddPlayer(gid) {
+  const name = document.getElementById('newPName').value.trim();
+  if (!name) return;
+  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert('Player already exists — use the dropdown.');
+  mutate(async () => {
+    const r = await db.from('players').insert({ name }).select().single();
+    if (r.error) return r;
+    return db.from('game_entries').insert({ game_id: gid, player_id: r.data.id, buy_ins: 1 });
+  });
+}
+function removeFromGame(eid, pid) {
+  if (!confirm(`Remove ${pname(pid)} from this game?`)) return;
+  mutate(() => db.from('game_entries').delete().eq('id', eid));
+}
+function editGameRatio(gid) {
+  const g = game(gid);
+  const r = prompt('INR per chip for this game:', g.inrPerChip);
+  if (r === null) return;
+  const c = prompt('Chips per buy-in for this game:', g.chipsPerBuyIn);
+  if (c === null) return;
+  const rn = parseFloat(r), cn = parseFloat(c);
+  if (isNaN(rn) || rn <= 0 || isNaN(cn) || cn <= 0) return alert('Invalid values.');
+  mutate(() => db.from('games').update({ inr_per_chip: rn, chips_per_buyin: cn }).eq('id', gid));
+}
+function finishGame(gid) {
+  const g = game(gid);
+  const pending = g.entries.filter(e => e.finalChips == null);
+  if (pending.length && !confirm(`${pending.length} player(s) not checked out yet — they will be excluded from results. Finish anyway?`)) return;
+  mutate(() => db.from('games').update({ status: 'done' }).eq('id', gid));
+}
+function reopenGame(gid) {
+  mutate(() => db.from('games').update({ status: 'live' }).eq('id', gid));
+}
+function deleteGame(gid) {
+  if (!confirm('Delete this game permanently? This affects balances.')) return;
+  route = { page: 'games' };
+  mutate(() => db.from('games').delete().eq('id', gid));
+}
+
+function viewPlayers() {
+  const bal = overallBalances();
+  const rows = state.players.map(p => {
+    const s = playerStats(p.id);
+    return `<tr>
+      <td><a class="link" onclick="go('player','${p.id}')">${esc(p.name)}</a></td>
+      <td>${s.games}</td>
+      <td><span class="pos">${s.wins}W</span> / <span class="neg">${s.losses}L</span></td>
+      <td class="${cls(s.net)}">${signed(s.net)}</td>
+      <td class="${cls(bal[p.id] || 0)}">${signed(bal[p.id] || 0)}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="card">
+      <h2>Add Player</h2>
+      <div class="row">
+        <input id="pName" placeholder="Player name" onkeydown="if(event.key==='Enter')addPlayer()">
+        <button class="btn" onclick="addPlayer()">Add</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Players</h2>
+      ${state.players.length ? `<table><tr><th>Name</th><th>Games</th><th>W / L</th><th>Lifetime net</th><th>Outstanding</th></tr>${rows}</table>` : `<div class="empty">No players yet.</div>`}
+      <div class="muted" style="font-size:12px;margin-top:10px">Outstanding = lifetime net adjusted for recorded payments. Positive = to receive, negative = owes.</div>
+    </div>`;
+}
+
+function addPlayer() {
+  const name = document.getElementById('pName').value.trim();
+  if (!name) return;
+  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert('Player already exists.');
+  mutate(() => db.from('players').insert({ name }));
+}
+
+function viewPlayer() {
+  const p = player(route.id);
+  if (!p) return `<div class="empty">Player not found.</div>`;
+  const s = playerStats(p.id);
+  const bal = overallBalances()[p.id] || 0;
+  const histRows = s.history.map(h => `<tr>
+    <td><a class="link" onclick="go('game','${h.game.id}')">${esc(h.game.name || h.game.date)}</a><br><span class="muted" style="font-size:12px">${h.game.date}</span></td>
+    <td>${h.entry.buyIns}</td>
+    <td>${h.entry.finalChips != null ? h.entry.finalChips : '<span class="muted">—</span>'}</td>
+    <td class="${h.net == null ? 'muted' : cls(h.net)}">${h.net == null ? (h.game.status === 'live' ? 'playing' : 'n/a') : signed(h.net)}</td>
+  </tr>`).join('');
+  const pays = state.payments.filter(x => x.fromId === p.id || x.toId === p.id).slice().reverse();
+  const payRows = pays.map(x => `<tr>
+    <td>${x.date}</td>
+    <td>${x.fromId === p.id ? `Paid <b>${esc(pname(x.toId))}</b>` : `Received from <b>${esc(pname(x.fromId))}</b>`}</td>
+    <td class="${x.fromId === p.id ? 'neg' : 'pos'}">${fmt(x.amount)}</td>
+    <td class="muted">${esc(x.note || '')}</td>
+  </tr>`).join('');
+  return `
+    <a class="link back" onclick="go('players')">&larr; All players</a>
+    <div class="card"><div class="row" style="justify-content:space-between">
+      <h2 style="font-size:20px;color:var(--text);text-transform:none;letter-spacing:0">${esc(p.name)}</h2>
+      <div class="row">
+        <button class="btn ghost small" onclick="renamePlayer('${p.id}')">Rename</button>
+        <button class="btn danger small" onclick="deletePlayer('${p.id}')">Delete</button>
+      </div>
+    </div></div>
+    <div class="stat-grid" style="margin-bottom:16px">
+      <div class="stat"><div class="label">Games</div><div class="value">${s.games}</div></div>
+      <div class="stat"><div class="label">Wins / Losses</div><div class="value"><span class="pos">${s.wins}</span> / <span class="neg">${s.losses}</span></div></div>
+      <div class="stat"><div class="label">Total buy-ins</div><div class="value">${s.buyIns}</div></div>
+      <div class="stat"><div class="label">Lifetime net</div><div class="value ${cls(s.net)}">${signed(s.net)}</div></div>
+      <div class="stat"><div class="label">Outstanding</div><div class="value ${cls(bal)}">${signed(bal)}</div></div>
+    </div>
+    <div class="card">
+      <h2>Game History</h2>
+      ${s.history.length ? `<table><tr><th>Game</th><th>Buy-ins</th><th>Final chips</th><th>Net</th></tr>${histRows}</table>` : `<div class="empty">No games played.</div>`}
+    </div>
+    <div class="card">
+      <h2>Payments</h2>
+      ${pays.length ? `<table><tr><th>Date</th><th>Detail</th><th>Amount</th><th>Note</th></tr>${payRows}</table>` : `<div class="empty">No payments recorded.</div>`}
+    </div>`;
+}
+
+function renamePlayer(pid) {
+  const p = player(pid);
+  const name = prompt('New name:', p.name);
+  if (!name || !name.trim()) return;
+  mutate(() => db.from('players').update({ name: name.trim() }).eq('id', pid));
+}
+function deletePlayer(pid) {
+  const inGames = state.games.some(g => g.entries.some(e => e.playerId === pid));
+  const inPays = state.payments.some(x => x.fromId === pid || x.toId === pid);
+  if (inGames || inPays) return alert('Cannot delete: player has game or payment history.');
+  if (!confirm('Delete this player?')) return;
+  route = { page: 'players' };
+  mutate(() => db.from('players').delete().eq('id', pid));
+}
+
+function viewSettlement() {
+  const bal = overallBalances();
+  const txns = settle(bal);
+  const balRows = state.players
+    .map(p => ({ p, b: bal[p.id] || 0 }))
+    .filter(x => Math.abs(x.b) > 0.005)
+    .sort((a, b) => b.b - a.b)
+    .map(x => `<tr><td><a class="link" onclick="go('player','${x.p.id}')">${esc(x.p.name)}</a></td><td class="${cls(x.b)}">${signed(x.b)}</td></tr>`)
+    .join('');
+  return `
+    <div class="card">
+      <h2>Outstanding Balances</h2>
+      ${balRows ? `<table><tr><th>Player</th><th>Balance</th></tr>${balRows}</table>` : `<div class="empty">Everyone is settled up. &#127881;</div>`}
+      <div class="muted" style="font-size:12px;margin-top:10px">Across all finished checkouts, minus recorded payments.</div>
+    </div>
+    <div class="card">
+      <h2>Suggested Settlement</h2>
+      ${txns.length ? txns.map(t => `
+        <div class="settle-line">
+          <span>${esc(pname(t.from))} &rarr; ${esc(pname(t.to))}</span>
+          <span class="row"><b>${fmt(t.amount)}</b>
+            <button class="btn small" onclick="recordSuggested('${t.from}','${t.to}',${t.amount})">Mark paid</button>
+          </span>
+        </div>`).join('') : `<div class="empty">Nothing to settle.</div>`}
+    </div>`;
+}
+
+function recordSuggested(fromId, toId, amount) {
+  if (!confirm(`Record: ${pname(fromId)} paid ${fmt(amount)} to ${pname(toId)}?`)) return;
+  mutate(() => db.from('payments').insert({ date: today(), from_id: fromId, to_id: toId, amount, note: 'settlement' }));
+}
+
+function viewPayments() {
+  const opts = state.players.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+  const rows = [...state.payments].reverse().map(x => `<tr>
+    <td>${x.date}</td>
+    <td>${esc(pname(x.fromId))}</td>
+    <td>${esc(pname(x.toId))}</td>
+    <td>${fmt(x.amount)}</td>
+    <td class="muted">${esc(x.note || '')}</td>
+    <td><button class="btn danger small" onclick="deletePayment('${x.id}')">&times;</button></td>
+  </tr>`).join('');
+  return `
+    <div class="card">
+      <h2>Record Payment</h2>
+      ${state.players.length < 2 ? `<div class="empty">Need at least 2 players.</div>` : `
+      <div class="row">
+        <select id="payFrom">${opts}</select>
+        <span class="muted">pays</span>
+        <select id="payTo">${opts}</select>
+        <input id="payAmt" type="number" placeholder="Amount ₹" min="0">
+        <input id="payDate" type="date" value="${today()}">
+        <input id="payNote" placeholder="Note (optional)">
+        <button class="btn" onclick="addPayment()">Record</button>
+      </div>`}
+    </div>
+    <div class="card">
+      <h2>Payment History</h2>
+      ${state.payments.length ? `<table><tr><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Note</th><th></th></tr>${rows}</table>` : `<div class="empty">No payments recorded.</div>`}
+    </div>`;
+}
+
+function addPayment() {
+  const fromId = document.getElementById('payFrom').value;
+  const toId = document.getElementById('payTo').value;
+  const amount = parseFloat(document.getElementById('payAmt').value);
+  const date = document.getElementById('payDate').value || today();
+  const note = document.getElementById('payNote').value.trim() || null;
+  if (fromId === toId) return alert('Payer and receiver must differ.');
+  if (isNaN(amount) || amount <= 0) return alert('Enter a valid amount.');
+  mutate(() => db.from('payments').insert({ date, from_id: fromId, to_id: toId, amount, note }));
+}
+function deletePayment(id) {
+  if (!confirm('Delete this payment record?')) return;
+  mutate(() => db.from('payments').delete().eq('id', id));
+}
+
+function viewSettings() {
+  return `
+    <div class="card">
+      <h2>Defaults for New Games</h2>
+      <div class="row" style="margin-bottom:10px">
+        <label class="muted" style="width:160px">Chips per buy-in</label>
+        <input id="setChips" type="number" min="1" value="${state.settings.chipsPerBuyIn}">
+      </div>
+      <div class="row" style="margin-bottom:14px">
+        <label class="muted" style="width:160px">INR per chip</label>
+        <input id="setRatio" type="number" min="0" step="0.01" value="${state.settings.inrPerChip}">
+      </div>
+      <div class="muted" style="font-size:13px;margin-bottom:14px">
+        1 buy-in = ${state.settings.chipsPerBuyIn} chips = ${fmt(state.settings.chipsPerBuyIn * state.settings.inrPerChip)}.
+        Changing defaults does not affect existing games.
+      </div>
+      <button class="btn" onclick="saveSettings()">Save</button>
+    </div>
+    <div class="card">
+      <h2>Data</h2>
+      <button class="btn ghost" onclick="exportData()">Export JSON</button>
+      <div class="muted" style="font-size:12px;margin-top:10px">Data is stored in Supabase and shared live with everyone using this URL.</div>
+    </div>`;
+}
+
+function saveSettings() {
+  const chips = parseFloat(document.getElementById('setChips').value);
+  const ratio = parseFloat(document.getElementById('setRatio').value);
+  if (isNaN(chips) || chips <= 0 || isNaN(ratio) || ratio <= 0) return alert('Invalid values.');
+  mutate(() => db.from('settings').update({ chips_per_buyin: chips, inr_per_chip: ratio }).eq('id', 1));
+}
+function exportData() {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `poker-ledger-${today()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ---------- Realtime sync ----------
+let refreshTimer = null;
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => { await refetchAll(); render(); }, 300);
+}
+
+async function init() {
+  render();
+  if (!configured) return;
+  await refetchAll();
+  render();
+  db.channel('ledger')
+    .on('postgres_changes', { event: '*', schema: 'public' }, scheduleRefresh)
+    .subscribe(status => {
+      document.getElementById('syncDot').className = status === 'SUBSCRIBED' ? 'on' : '';
+    });
+}
+init();
+</script>
+</body>
+</html>
