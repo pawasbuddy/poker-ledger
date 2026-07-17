@@ -443,8 +443,14 @@ function editGameRatio(gid) {
 function finishGame(gid) {
   const g = game(gid);
   const pending = g.entries.filter(e => e.finalChips == null);
-  if (pending.length && !confirm(`${pending.length} player(s) not checked out yet — they will be excluded from results. Finish anyway?`)) return;
-  mutate(() => db.from('games').update({ status: 'done' }).eq('id', gid));
+  if (pending.length && !confirm(`${pending.length} player(s) not checked out yet — they will be checked out with 0 chips. Finish anyway?`)) return;
+  mutate(async () => {
+    if (pending.length) {
+      const r = await db.from('game_entries').update({ final_chips: 0 }).eq('game_id', gid).is('final_chips', null);
+      if (r.error) return r;
+    }
+    return db.from('games').update({ status: 'done' }).eq('id', gid);
+  });
 }
 function askAdmin() {
   const pwd = prompt('Admin password:');
