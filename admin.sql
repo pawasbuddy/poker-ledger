@@ -20,7 +20,7 @@ create or replace function check_admin(pwd text) returns boolean
 language sql security definer set search_path = public, extensions as $$
   select exists (
     select 1 from admin_config
-    where id = 1 and password_hash = crypt(pwd, password_hash)
+    where id = 1 and password_hash = extensions.crypt(pwd, password_hash)
   );
 $$;
 
@@ -97,5 +97,5 @@ create or replace function admin_change_password(old_pwd text, new_pwd text) ret
 language plpgsql security definer set search_path = public, extensions as $$
 begin
   if not check_admin(old_pwd) then raise exception 'Wrong admin password'; end if;
-  update admin_config set password_hash = crypt(new_pwd, gen_salt('bf')) where id = 1;
+  update admin_config set password_hash = extensions.crypt(new_pwd, extensions.gen_salt('bf')) where id = 1;
 end $$;
