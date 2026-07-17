@@ -446,13 +446,21 @@ function finishGame(gid) {
   if (pending.length && !confirm(`${pending.length} player(s) not checked out yet — they will be excluded from results. Finish anyway?`)) return;
   mutate(() => db.from('games').update({ status: 'done' }).eq('id', gid));
 }
+function askAdmin() {
+  const pwd = prompt('Admin password:');
+  return pwd === null || pwd === '' ? null : pwd;
+}
 function reopenGame(gid) {
-  mutate(() => db.from('games').update({ status: 'live' }).eq('id', gid));
+  const pwd = askAdmin();
+  if (pwd == null) return;
+  mutate(() => db.rpc('admin_reopen_game', { gid, pwd }));
 }
 function deleteGame(gid) {
   if (!confirm('Delete this game permanently? This affects balances.')) return;
+  const pwd = askAdmin();
+  if (pwd == null) return;
   route = { page: 'games' };
-  mutate(() => db.from('games').delete().eq('id', gid));
+  mutate(() => db.rpc('admin_delete_game', { gid, pwd }));
 }
 
 function viewPlayers() {
@@ -544,8 +552,10 @@ function deletePlayer(pid) {
   const inPays = state.payments.some(x => x.fromId === pid || x.toId === pid);
   if (inGames || inPays) return alert('Cannot delete: player has game or payment history.');
   if (!confirm('Delete this player?')) return;
+  const pwd = askAdmin();
+  if (pwd == null) return;
   route = { page: 'players' };
-  mutate(() => db.from('players').delete().eq('id', pid));
+  mutate(() => db.rpc('admin_delete_player', { pid, pwd }));
 }
 
 function viewSettlement() {
@@ -622,7 +632,9 @@ function addPayment() {
 }
 function deletePayment(id) {
   if (!confirm('Delete this payment record?')) return;
-  mutate(() => db.from('payments').delete().eq('id', id));
+  const pwd = askAdmin();
+  if (pwd == null) return;
+  mutate(() => db.rpc('admin_delete_payment', { pay_id: id, pwd }));
 }
 
 function viewSettings() {
