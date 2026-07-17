@@ -90,6 +90,17 @@
   .empty { color: var(--muted); padding: 20px; text-align: center; font-size: 14px; }
   .back { margin-bottom: 12px; display: inline-block; }
   .warn { color: var(--accent); font-size: 13px; margin-top: 8px; }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; max-width: 360px; width: calc(100% - 40px);
+  }
+  .modal p { font-size: 14px; margin-bottom: 14px; line-height: 1.5; white-space: pre-wrap; }
+  .modal input { width: 100%; margin-bottom: 14px; }
+  .modal .row { justify-content: flex-end; }
   code { background: var(--panel2); padding: 2px 6px; border-radius: 6px; font-size: 13px; }
   @media (max-width: 600px) {
     td, th { padding: 8px 6px; }
@@ -100,7 +111,7 @@
 <body>
 
 <header>
-  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v4</span></h1>
+  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v5</span></h1>
   <nav id="nav"></nav>
   <span id="syncDot" title="Live sync status"></span>
 </header>
@@ -131,7 +142,7 @@ async function refetchAll() {
     db.from('payments').select('*').order('created_at'),
   ]);
   for (const r of [set, pl, gm, en, pay]) {
-    if (r.error) { console.error(r.error); alert('Failed to load data: ' + r.error.message); return; }
+    if (r.error) { console.error(r.error); uiAlert('Failed to load data: ' + r.error.message); return; }
   }
   state.settings = { chipsPerBuyIn: +set.data.chips_per_buyin, inrPerChip: +set.data.inr_per_chip };
   state.players = pl.data.map(p => ({ id: p.id, name: p.name }));
@@ -158,7 +169,7 @@ async function mutate(fn) {
     render();
   } catch (e) {
     console.error(e);
-    alert('Action failed: ' + (e.message || e));
+    uiAlert('Action failed: ' + (e.message || e));
     render();
   }
 }
@@ -168,6 +179,36 @@ const fmt = n => (n < 0 ? '-' : '') + '₹' + Math.abs(Math.round(n * 100) / 100
 const cls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : 'muted';
 const signed = n => (n > 0 ? '+' : '') + fmt(n);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// In-page dialogs (native alert/confirm/prompt can be blocked by browsers)
+function dialog(opts) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.id = 'overlay';
+    ov.innerHTML = `<div class="modal">
+      <p></p>
+      ${opts.input ? `<input type="${opts.type || 'text'}">` : ''}
+      <div class="row">
+        ${opts.alert ? '' : '<button class="btn ghost" data-x="cancel">Cancel</button>'}
+        <button class="btn" data-x="ok">OK</button>
+      </div></div>`;
+    ov.querySelector('p').textContent = opts.message;
+    const inp = ov.querySelector('input');
+    if (inp && opts.value != null) inp.value = opts.value;
+    const done = val => { ov.remove(); resolve(val); };
+    ov.addEventListener('click', e => {
+      const x = e.target.dataset ? e.target.dataset.x : null;
+      if (e.target === ov || x === 'cancel') return done(opts.input ? null : false);
+      if (x === 'ok') return done(opts.input ? inp.value : true);
+    });
+    if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') done(inp.value); });
+    document.body.appendChild(ov);
+    if (inp) inp.focus();
+  });
+}
+const uiAlert = m => dialog({ message: m, alert: true });
+const uiConfirm = m => dialog({ message: m });
+const uiPrompt = (m, value = '', type = 'text') => dialog({ message: m, input: true, value, type });
+
 const player = id => state.players.find(p => p.id === id);
 const pname = id => { const p = player(id); return p ? p.name : '(deleted)'; };
 const game = id => state.games.find(g => g.id === id);
@@ -402,13 +443,13 @@ function bumpBuyIn(eid, d) {
   f.e.buyIns = v; render(); // optimistic
   mutate(() => db.from('game_entries').update({ buy_ins: v }).eq('id', eid));
 }
-function checkout(eid) {
+async function checkout(eid) {
   const f = findEntry(eid);
   if (!f) return;
-  const v = prompt(`Final chip count for ${pname(f.e.playerId)}:`, f.e.finalChips != null ? f.e.finalChips : '');
+  const v = await uiPrompt(`Final chip count for ${pname(f.e.playerId)}:`, f.e.finalChips != null ? f.e.finalChips : '', 'number');
   if (v === null) return;
   const n = parseFloat(v);
-  if (isNaN(n) || n < 0) return alert('Enter a valid chip count.');
+  if (isNaN(n) || n < 0) return uiAlert('Enter a valid chip count.');
   mutate(() => db.from('game_entries').update({ final_chips: n }).eq('id', eid));
 }
 function addToGame(gid) {
@@ -419,31 +460,31 @@ function addToGame(gid) {
 function quickAddPlayer(gid) {
   const name = document.getElementById('newPName').value.trim();
   if (!name) return;
-  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert('Player already exists — use the dropdown.');
+  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return uiAlert('Player already exists — use the dropdown.');
   mutate(async () => {
     const r = await db.from('players').insert({ name }).select().single();
     if (r.error) return r;
     return db.from('game_entries').insert({ game_id: gid, player_id: r.data.id, buy_ins: 1 });
   });
 }
-function removeFromGame(eid, pid) {
-  if (!confirm(`Remove ${pname(pid)} from this game?`)) return;
+async function removeFromGame(eid, pid) {
+  if (!await uiConfirm(`Remove ${pname(pid)} from this game?`)) return;
   mutate(() => db.from('game_entries').delete().eq('id', eid));
 }
-function editGameRatio(gid) {
+async function editGameRatio(gid) {
   const g = game(gid);
-  const r = prompt('INR per chip for this game:', g.inrPerChip);
+  const r = await uiPrompt('INR per chip for this game:', g.inrPerChip, 'number');
   if (r === null) return;
-  const c = prompt('Chips per buy-in for this game:', g.chipsPerBuyIn);
+  const c = await uiPrompt('Chips per buy-in for this game:', g.chipsPerBuyIn, 'number');
   if (c === null) return;
   const rn = parseFloat(r), cn = parseFloat(c);
-  if (isNaN(rn) || rn <= 0 || isNaN(cn) || cn <= 0) return alert('Invalid values.');
+  if (isNaN(rn) || rn <= 0 || isNaN(cn) || cn <= 0) return uiAlert('Invalid values.');
   mutate(() => db.from('games').update({ inr_per_chip: rn, chips_per_buyin: cn }).eq('id', gid));
 }
-function finishGame(gid) {
+async function finishGame(gid) {
   const g = game(gid);
   const pending = g.entries.filter(e => e.finalChips == null);
-  if (pending.length && !confirm(`${pending.length} player(s) not checked out yet — they will be checked out with 0 chips. Finish anyway?`)) return;
+  if (pending.length && !await uiConfirm(`${pending.length} player(s) not checked out yet — they will be checked out with 0 chips. Finish anyway?`)) return;
   mutate(async () => {
     if (pending.length) {
       const r = await db.from('game_entries').update({ final_chips: 0 }).eq('game_id', gid).is('final_chips', null);
@@ -452,18 +493,18 @@ function finishGame(gid) {
     return db.from('games').update({ status: 'done' }).eq('id', gid);
   });
 }
-function askAdmin() {
-  const pwd = prompt('Admin password:');
-  return pwd === null || pwd === '' ? null : pwd;
+async function askAdmin() {
+  const pwd = await uiPrompt('Admin password:', '', 'password');
+  return pwd ? pwd : null;
 }
-function reopenGame(gid) {
-  const pwd = askAdmin();
+async function reopenGame(gid) {
+  const pwd = await askAdmin();
   if (pwd == null) return;
   mutate(() => db.rpc('admin_reopen_game', { gid, pwd }));
 }
-function deleteGame(gid) {
-  if (!confirm('Delete this game permanently? This affects balances.')) return;
-  const pwd = askAdmin();
+async function deleteGame(gid) {
+  if (!await uiConfirm('Delete this game permanently? This affects balances.')) return;
+  const pwd = await askAdmin();
   if (pwd == null) return;
   route = { page: 'games' };
   mutate(() => db.rpc('admin_delete_game', { gid, pwd }));
@@ -499,7 +540,7 @@ function viewPlayers() {
 function addPlayer() {
   const name = document.getElementById('pName').value.trim();
   if (!name) return;
-  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return alert('Player already exists.');
+  if (state.players.some(p => p.name.toLowerCase() === name.toLowerCase())) return uiAlert('Player already exists.');
   mutate(() => db.from('players').insert({ name }));
 }
 
@@ -547,18 +588,18 @@ function viewPlayer() {
     </div>`;
 }
 
-function renamePlayer(pid) {
+async function renamePlayer(pid) {
   const p = player(pid);
-  const name = prompt('New name:', p.name);
+  const name = await uiPrompt('New name:', p.name);
   if (!name || !name.trim()) return;
   mutate(() => db.from('players').update({ name: name.trim() }).eq('id', pid));
 }
-function deletePlayer(pid) {
+async function deletePlayer(pid) {
   const inGames = state.games.some(g => g.entries.some(e => e.playerId === pid));
   const inPays = state.payments.some(x => x.fromId === pid || x.toId === pid);
-  if (inGames || inPays) return alert('Cannot delete: player has game or payment history.');
-  if (!confirm('Delete this player?')) return;
-  const pwd = askAdmin();
+  if (inGames || inPays) return uiAlert('Cannot delete: player has game or payment history.');
+  if (!await uiConfirm('Delete this player?')) return;
+  const pwd = await askAdmin();
   if (pwd == null) return;
   route = { page: 'players' };
   mutate(() => db.rpc('admin_delete_player', { pid, pwd }));
@@ -591,8 +632,8 @@ function viewSettlement() {
     </div>`;
 }
 
-function recordSuggested(fromId, toId, amount) {
-  if (!confirm(`Record: ${pname(fromId)} paid ${fmt(amount)} to ${pname(toId)}?`)) return;
+async function recordSuggested(fromId, toId, amount) {
+  if (!await uiConfirm(`Record: ${pname(fromId)} paid ${fmt(amount)} to ${pname(toId)}?`)) return;
   mutate(() => db.from('payments').insert({ date: today(), from_id: fromId, to_id: toId, amount, note: 'settlement' }));
 }
 
@@ -632,13 +673,13 @@ function addPayment() {
   const amount = parseFloat(document.getElementById('payAmt').value);
   const date = document.getElementById('payDate').value || today();
   const note = document.getElementById('payNote').value.trim() || null;
-  if (fromId === toId) return alert('Payer and receiver must differ.');
-  if (isNaN(amount) || amount <= 0) return alert('Enter a valid amount.');
+  if (fromId === toId) return uiAlert('Payer and receiver must differ.');
+  if (isNaN(amount) || amount <= 0) return uiAlert('Enter a valid amount.');
   mutate(() => db.from('payments').insert({ date, from_id: fromId, to_id: toId, amount, note }));
 }
-function deletePayment(id) {
-  if (!confirm('Delete this payment record?')) return;
-  const pwd = askAdmin();
+async function deletePayment(id) {
+  if (!await uiConfirm('Delete this payment record?')) return;
+  const pwd = await askAdmin();
   if (pwd == null) return;
   mutate(() => db.rpc('admin_delete_payment', { pay_id: id, pwd }));
 }
@@ -671,7 +712,7 @@ function viewSettings() {
 function saveSettings() {
   const chips = parseFloat(document.getElementById('setChips').value);
   const ratio = parseFloat(document.getElementById('setRatio').value);
-  if (isNaN(chips) || chips <= 0 || isNaN(ratio) || ratio <= 0) return alert('Invalid values.');
+  if (isNaN(chips) || chips <= 0 || isNaN(ratio) || ratio <= 0) return uiAlert('Invalid values.');
   mutate(() => db.from('settings').update({ chips_per_buyin: chips, inr_per_chip: ratio }).eq('id', 1));
 }
 function exportData() {
