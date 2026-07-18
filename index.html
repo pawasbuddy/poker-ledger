@@ -111,7 +111,7 @@
 <body>
 
 <header>
-  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v5</span></h1>
+  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v6</span></h1>
   <nav id="nav"></nav>
   <span id="syncDot" title="Live sync status"></span>
 </header>
@@ -258,19 +258,22 @@ function settle(balances) {
   }
   return txns;
 }
-function playerStats(pid) {
-  let games = 0, wins = 0, losses = 0, net = 0, buyIns = 0;
+function playerStats(pid, from, to) {
+  let games = 0, wins = 0, losses = 0, net = 0, buyIns = 0, buyInAmt = 0;
   const history = [];
   for (const g of state.games) {
+    if (from && g.date < from) continue;
+    if (to && g.date > to) continue;
     const e = g.entries.find(x => x.playerId === pid);
     if (!e) continue;
     const n = entryNet(g, e);
     history.push({ game: g, entry: e, net: n });
     if (n == null) continue;
     games++; net += n; buyIns += e.buyIns;
+    buyInAmt += e.buyIns * g.chipsPerBuyIn * g.inrPerChip;
     if (n > 0) wins++; else if (n < 0) losses++;
   }
-  return { games, wins, losses, net, buyIns, history: history.reverse() };
+  return { games, wins, losses, net, buyIns, buyInAmt, history: history.reverse() };
 }
 
 // ---------- Router ----------
@@ -510,18 +513,32 @@ async function deleteGame(gid) {
   mutate(() => db.rpc('admin_delete_game', { gid, pwd }));
 }
 
+let playersUI = { sortKey: 'net', sortDir: -1, from: '', to: '' };
+
+function sortPlayers(key) {
+  if (playersUI.sortKey === key) playersUI.sortDir = -playersUI.sortDir;
+  else { playersUI.sortKey = key; playersUI.sortDir = key === 'name' ? 1 : -1; }
+  render();
+}
+function setPlayersDate(which, v) { playersUI[which] = v; render(); }
+
 function viewPlayers() {
-  const bal = overallBalances();
-  const rows = state.players.map(p => {
-    const s = playerStats(p.id);
-    return `<tr>
+  const { sortKey, sortDir, from, to } = playersUI;
+  const data = state.players.map(p => ({ p, s: playerStats(p.id, from, to) }));
+  data.sort((a, b) => {
+    const v = sortKey === 'name' ? a.p.name.localeCompare(b.p.name) : a.s[sortKey] - b.s[sortKey];
+    return v * sortDir;
+  });
+  const arrow = k => sortKey === k ? (sortDir > 0 ? ' &#9650;' : ' &#9660;') : '';
+  const th = (k, label) => `<th style="cursor:pointer" onclick="sortPlayers('${k}')">${label}${arrow(k)}</th>`;
+  const rows = data.map(({ p, s }) => `<tr>
       <td><a class="link" onclick="go('player','${p.id}')">${esc(p.name)}</a></td>
       <td>${s.games}</td>
       <td><span class="pos">${s.wins}W</span> / <span class="neg">${s.losses}L</span></td>
+      <td>${s.buyIns}</td>
+      <td>${fmt(s.buyInAmt)}</td>
       <td class="${cls(s.net)}">${signed(s.net)}</td>
-      <td class="${cls(bal[p.id] || 0)}">${signed(bal[p.id] || 0)}</td>
-    </tr>`;
-  }).join('');
+    </tr>`).join('');
   return `
     <div class="card">
       <h2>Add Player</h2>
@@ -532,8 +549,15 @@ function viewPlayers() {
     </div>
     <div class="card">
       <h2>Players</h2>
-      ${state.players.length ? `<table><tr><th>Name</th><th>Games</th><th>W / L</th><th>Lifetime net</th><th>Outstanding</th></tr>${rows}</table>` : `<div class="empty">No players yet.</div>`}
-      <div class="muted" style="font-size:12px;margin-top:10px">Outstanding = lifetime net adjusted for recorded payments. Positive = to receive, negative = owes.</div>
+      <div class="row" style="margin-bottom:12px">
+        <span class="muted" style="font-size:13px">From</span>
+        <input type="date" value="${from}" onchange="setPlayersDate('from', this.value)">
+        <span class="muted" style="font-size:13px">To</span>
+        <input type="date" value="${to}" onchange="setPlayersDate('to', this.value)">
+        ${from || to ? `<button class="btn ghost small" onclick="playersUI.from='';playersUI.to='';render()">Clear</button>` : ''}
+      </div>
+      ${state.players.length ? `<table><tr>${th('name','Name')}${th('games','Games')}${th('wins','W / L')}${th('buyIns','Buy-ins')}${th('buyInAmt','Buy-in amt')}${th('net','Net')}</tr>${rows}</table>` : `<div class="empty">No players yet.</div>`}
+      <div class="muted" style="font-size:12px;margin-top:10px">Click a column to sort. Date filter applies to game dates; only checked-out results are counted.</div>
     </div>`;
 }
 
