@@ -111,7 +111,7 @@
 <body>
 
 <header>
-  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v6</span></h1>
+  <h1>&#9824; Poker Ledger <span class="muted" style="font-size:11px">v7</span></h1>
   <nav id="nav"></nav>
   <span id="syncDot" title="Live sync status"></span>
 </header>
@@ -282,7 +282,7 @@ function go(page, id) { route = { page, id }; render(); window.scrollTo(0, 0); }
 
 const NAV = [
   ['games', 'Games'], ['players', 'Players'], ['settlement', 'Settlement'],
-  ['payments', 'Payments'], ['settings', 'Settings'],
+  ['payments', 'Payments'], ['activity', 'Activity'], ['settings', 'Settings'],
 ];
 
 function render() {
@@ -293,7 +293,7 @@ function render() {
   const main = document.getElementById('main');
   if (!configured) { main.innerHTML = viewSetup(); return; }
   if (!loaded) { main.innerHTML = `<div class="empty">Loading&hellip;</div>`; return; }
-  const views = { games: viewGames, game: viewGame, players: viewPlayers, player: viewPlayer, settlement: viewSettlement, payments: viewPayments, settings: viewSettings };
+  const views = { games: viewGames, game: viewGame, players: viewPlayers, player: viewPlayer, settlement: viewSettlement, payments: viewPayments, activity: viewActivity, settings: viewSettings };
   main.innerHTML = (views[route.page] || viewGames)();
 }
 
@@ -708,6 +708,80 @@ async function deletePayment(id) {
   mutate(() => db.rpc('admin_delete_payment', { pay_id: id, pwd }));
 }
 
+// ---------- Activity (changelog) ----------
+let activityCache = null;
+
+function gameLabel(gid, row) {
+  const g = game(gid);
+  if (g) return g.name || g.date;
+  if (row && (row.name || row.date)) return row.name || row.date;
+  return 'a deleted game';
+}
+function describeChange(c) {
+  const o = c.old_row, n = c.new_row;
+  const t = c.table_name, op = c.op;
+  if (t === 'players') {
+    if (op === 'INSERT') return `Added player <b>${esc(n.name)}</b>`;
+    if (op === 'DELETE') return `Deleted player <b>${esc(o.name)}</b>`;
+    if (o.name !== n.name) return `Renamed player <b>${esc(o.name)}</b> &rarr; <b>${esc(n.name)}</b>`;
+    return `Updated player <b>${esc(n.name)}</b>`;
+  }
+  if (t === 'games') {
+    const label = esc(gameLabel((n || o).id, n || o));
+    if (op === 'INSERT') return `Started game <b>${label}</b>`;
+    if (op === 'DELETE') return `Deleted game <b>${label}</b>`;
+    if (o.status === 'live' && n.status === 'done') return `Finished game <b>${label}</b>`;
+    if (o.status === 'done' && n.status === 'live') return `Reopened game <b>${label}</b>`;
+    if (o.inr_per_chip !== n.inr_per_chip || o.chips_per_buyin !== n.chips_per_buyin)
+      return `Game <b>${label}</b>: ratio changed to ${n.chips_per_buyin} chips/buy-in @ ${fmt(+n.inr_per_chip)}/chip`;
+    return `Updated game <b>${label}</b>`;
+  }
+  if (t === 'game_entries') {
+    const r = n || o;
+    const who = `<b>${esc(pname(r.player_id))}</b>`;
+    const label = esc(gameLabel(r.game_id));
+    if (op === 'INSERT') return `${who} joined <b>${label}</b>`;
+    if (op === 'DELETE') return `${who} removed from <b>${label}</b>`;
+    if (o.buy_ins !== n.buy_ins) return `${who} buy-ins ${o.buy_ins} &rarr; ${n.buy_ins} in <b>${label}</b>`;
+    if (o.final_chips !== n.final_chips) return `${who} checked out with ${+n.final_chips} chips in <b>${label}</b>`;
+    return `${who} updated in <b>${label}</b>`;
+  }
+  if (t === 'payments') {
+    const r = n || o;
+    const line = `<b>${esc(pname(r.from_id))}</b> paid <b>${esc(pname(r.to_id))}</b> ${fmt(+r.amount)}`;
+    if (op === 'INSERT') return `Payment recorded: ${line}`;
+    if (op === 'DELETE') return `Payment deleted: ${line}`;
+    return `Payment updated: ${line}`;
+  }
+  if (t === 'settings')
+    return `Defaults changed to ${+n.chips_per_buyin} chips/buy-in @ ${fmt(+n.inr_per_chip)}/chip`;
+  return `${op} on ${esc(t)}`;
+}
+
+function viewActivity() {
+  if (activityCache === null) {
+    (async () => {
+      const r = await db.from('changelog').select('*').order('id', { ascending: false }).limit(200);
+      activityCache = r.error ? [] : r.data;
+      if (r.error) console.error(r.error);
+      if (route.page === 'activity') render();
+    })();
+    return `<div class="empty">Loading activity&hellip;</div>`;
+  }
+  const rows = activityCache.map(c => `<tr>
+    <td class="muted" style="white-space:nowrap;font-size:12px">${new Date(c.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+    <td>${describeChange(c)}</td>
+  </tr>`).join('');
+  return `
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <h2 style="margin-bottom:0">Activity (last ${activityCache.length})</h2>
+        <button class="btn ghost small" onclick="activityCache=null;render()">Refresh</button>
+      </div>
+      ${activityCache.length ? `<table>${rows}</table>` : `<div class="empty">No activity recorded yet. (Only changes made after the changelog was installed appear here.)</div>`}
+    </div>`;
+}
+
 function viewSettings() {
   return `
     <div class="card">
@@ -752,7 +826,7 @@ function exportData() {
 let refreshTimer = null;
 function scheduleRefresh() {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(async () => { await refetchAll(); render(); }, 300);
+  refreshTimer = setTimeout(async () => { activityCache = null; await refetchAll(); render(); }, 300);
 }
 
 async function init() {
